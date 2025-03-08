@@ -1,0 +1,515 @@
+%----------------------------------------------------------------------------------------
+%    PACKAGES AND THEMES
+%----------------------------------------------------------------------------------------
+
+\documentclass[aspectratio=169,xcolor=dvipsnames]{beamer}
+\usetheme{SimpleDarkBlue}
+
+\usepackage{hyperref}
+\usepackage{graphicx} % Allows including images
+\usepackage{booktabs} % Allows the use of \toprule, \midrule and \bottomrule in tables 
+\newcommand{\bE}{\mathbb{E}}
+\newcommand{\bR}{\mathbb{R}}
+\newcommand{\cL}{\mathcal{L}}
+\newcommand{\cM}{\mathcal{M}}
+\newcommand{\cD}{\mathcal{D}}
+\newcommand{\cS}{\mathcal{S}}
+\newcommand{\cA}{\mathcal{A}}
+\newcommand{\cH}{\mathcal{H}}
+\newcommand{\cT}{\mathcal{T}}
+\newcommand{\lm}{\lambda}
+\newcommand{\te}{\theta}
+\newcommand{\eps}{\epsilon}
+\newcommand{\nal}[1]{\begin{align*}#1\end{align*}}
+\newcommand{\al}[1]{\begin{align}#1\end{align}}
+\newcommand{\cN}{\mathcal{N}}
+%----------------------------------------------------------------------------------------
+%    TITLE PAGE
+%----------------------------------------------------------------------------------------
+
+\title{Soft Diffusion Actor-Critic}
+\subtitle{ }
+
+\author{Online Optimization and Control Course  Presentation\\
+Presenter: A.Ch.Madhusudanarao}
+
+\institute
+{
+    Department of Electrical Communication Engineering \\
+    IISc-Bangalore % Your institution for the title page
+}
+\date{\today} % Date, can be changed to a custom date
+
+%----------------------------------------------------------------------------------------
+%    PRESENTATION SLIDES
+%----------------------------------------------------------------------------------------
+
+\begin{document}
+
+\begin{frame}
+    % Print the title page as the first slide
+    \titlepage
+\end{frame}
+
+\begin{frame}{Overview}
+    % Throughout your presentation, if you choose to use \section{} and \subsection{} commands, these will automatically be printed on this slide as an overview of your presentation
+    \tableofcontents
+\end{frame}
+
+%------------------------------------------------
+\section{Introduction to Energy Based Models}
+%------------------------------------------------
+
+\begin{frame}{Energy Based Models}
+    \begin{itemize}
+        \item Optimal stochastic policy of online RL lies in energy-based models (EBMs) \cite{haarnoja2017reinforcement}.
+    \end{itemize}
+    \textbf{EBM:} 
+    The density given by EBM is
+    \nal{
+        p_{\te}(x) = \frac{\exp(-E_{\te}(x))}{Z_{\te}},
+    }
+    $E_{\te}(x)$ (the energy) is a nonlinear regression function with parameter $\te$, and 
+    \nal{
+        Z_{\te} := \int \exp(-E_{\te}(x)) dx.
+    } 
+    \alert{Evaluation of $Z_{\te}$ is difficult.}
+\end{frame}
+
+%------------------------------------------------
+
+\begin{frame}{How to train EBMs \cite{song2021train}}
+ We can fit $p_{\te}(x)$ to $p_{data}(x)$ by maximizing
+ the expected log-likelihood function over the data distribution, 
+ \nal{
+    \bE_{x\sim p_{data}(x)}\left[\log p_{\te}(x)\right].
+ }
+ \alert{We can not directly compute the likelihood of an EBM due to the intractable normalizing constant $Z_{\te}$.}
+
+\textbf{Solution:} We can estimate
+ the gradient of the log-likelihood with MCMC approaches, allowing for likelihood maximization with gradient ascent.
+\end{frame}
+
+%------------------------------------------------
+%------------------------------------------------
+\subsection{Maximum Likelihood training with MCMC}
+%------------------------------------------------
+
+\begin{frame}{Maximum Likelihood training with MCMC}
+ We have,
+ \nal{
+     \nabla_{\te}\log p_{\te}(x) = -\nabla_{\te}E_{\te}(x) - \alert{\nabla_{\te}\log Z_{\te}}.
+ }
+ It can be shown that,
+ \nal{
+     \nabla_{\te}\log Z_{\te} = \bE_{\tilde{x}\sim p_{\te}(\tilde{x})}[-\nabla_{\te}E_{\te}(\tilde{x})].
+ }
+ Hence, we have the following one-sample Monte Carlo estimate of $\nabla_{\te}\log Z_{\te}$ as below,
+ \nal{
+    \nabla_{\te}\log Z_{\te} \simeq -\nabla_{\te} E_{\te}(\tilde{x}),
+ }
+ where $\tilde{x}\sim p_{\te}(\cdot)$.
+
+ Hence, we can have \textit{stochastic gradient ascent}, \alert{if we can get samples from $p_{\te}$}.
+\end{frame}
+
+%------------------------------------------------
+
+\begin{frame}{Maximum Likelihood training with MCMC}
+ \textbf{Langevin MCMC to sample from $p_{\te}(\cdot)$:}
+ 
+ We have the \textit{score} of the distribution $p_{\te}$ is,
+ \nal{
+      \nabla_x \log p_{\te}(x) & = -\nabla_{x} E_{\te}(x) -\nabla_x \log Z_{\te}\\
+      & = -\nabla_{x} E_{\te}(x).
+ }
+ We first draw an initial
+ sample $x_0$ from a simple prior distribution, and then simulate Langevin
+ diffusion process for $K$ steps with step size $\eps >0$:
+\nal{
+    x^{k+1} \leftarrow x^k + \frac{\eps^2}{2}\nabla_x\log p_{\te}(x^k) + \eps\xi^k,~~k=0,1,\ldots,K-1,
+}
+where $\xi^k s$ are i.i.d. standard normal samples.
+\end{frame}
+
+%------------------------------------------------
+%------------------------------------------------
+\subsection{Score Matching to train EBMs}
+%------------------------------------------------
+
+\begin{frame}{Score Matching to train EBMs}
+\textbf{Idea for Score Matching concept:}
+\begin{itemize}
+  \item If two continuously differentiable real-valued functions $f(x)$ and $g(x)$ have equal first derivatives everywhere, then $f(x)=g(x) + $constant.
+  \item When \alert{$f(x)$ and $g(x)$ are log-probability density functions} with equal first derivatives, the normalization requirement implies that 
+  \nal{
+     \int \exp(f(x))dx = \int \exp(g(x))dx = 1.
+  }
+  \item Then we have constant$=0$ and $f(x)=g(x)$.
+ \end{itemize}
+ Hence,
+ one can learn an EBM by (approximately) matching the first derivatives of its log-PDF to
+ the first derivatives of the log-PDF of the data distribution. 
+ 
+ If they match, then the EBM captures the data distribution exactly. 
+\end{frame}
+
+%------------------------------------------------
+
+\begin{frame}{Score Matching to train EBMs}
+\begin{itemize}
+  \item For training EBMs, it is useful to transform the
+ equivalence of distributions to the equivalence of scores, because the \textit{score of an EBM} can be
+ easily obtained by 
+ \nal{
+    \nabla_x\log p_{\te}(x) = -\nabla_x E_{\te}(x),
+ }
+ which does not involve
+ the intractable normalizing constant $Z_{\te}$.
+ \end{itemize}
+\end{frame}
+
+
+%------------------------------------------------
+
+\begin{frame}{Score Matching to train EBMs}
+\begin{itemize}
+  \item The basic Score Matching
+  objective minimizes a discrepancy between two distributions called the Fisher divergence:
+  \nal{
+        D_F(p_{data}(x)\| p_{\te}(x)) = \bE_{p_{data}(x)}\left[\frac{1}{2}\|\alert{\nabla_x\log p_{data}(x)}-\nabla_x\log p_{\te}(x)\|^2\right].
+  }
+  \item Under some regularity conditions,
+  \nal{
+        D_F(p_{data}(x)\| p_{\te}(x)) = \bE_{p_{data}(x)}\left[\frac{1}{2}\sum\limits_{i=1}^{d}\left(\frac{\partial E_{\te}(x)}{\partial x_i}\right)^2 + \frac{\partial^2E_{\te}(x)}{(\partial x_i)^2} \right] + \text{ constant},
+  }
+  where $d$ is the dimension of $x$.
+ \end{itemize}
+\end{frame}
+%------------------------------------------------
+\subsection{Summary of Energy Based Models}
+%------------------------------------------------
+
+\begin{frame}{Summary of Energy Based Models}
+    \begin{itemize}
+        \item Optimal stochastic policy of online RL lies in energy-based models (EBMs) \cite{haarnoja2017reinforcement}.
+        \item EBMs are inherently flexible and multimodal.
+        \item  \alert{Sampling and evaluation of EBMs are notoriously difficult \cite{song2021train}}.
+    \end{itemize}
+    Parametrized probabilistic models have been introduced for
+    efficient sampling and learning but with the payoff of approximation error.
+    \begin{itemize}
+        \item Example: Maximum entropy RL algorithm (soft actor-critic) that has
+        been the state-of-the-art in online RL. 
+ 
+     However, SAC restricts the policy space to Gaussian distributions, thereby losing the inherent expressiveness and multi-modality of EBMs.
+    \end{itemize}
+\end{frame}
+
+%------------------------------------------------
+\section{Expressiveness of Diffusion Models}
+%------------------------------------------------
+
+
+\begin{frame}{Expressiveness of Diffusion Models}
+    \begin{itemize}
+        \item  Diffusion models have been shown to be closely related to energy-based models (EBMs), as they can be interpreted as EBMs with multi-level noise perturbations \cite{shribak2024diffusion}.
+        \item  The multi-level noise perturbations significantly improve the sampling quality, making diffusion policies the
+        perfect fit to represent the energy-based policies.
+        \item  \alert{
+        The vanilla procedure to train diffusion models requires sampling from target
+        data distribution, which refers to the optimal policy in online RL. 
+        
+        However, we can not sample from the optimal policies in online RL directly.}
+    \end{itemize}
+\end{frame}
+
+%------------------------------------------------
+
+\begin{frame}{Soft Diffusion Actor-Critic \cite{ma2025soft}}
+\cite{ma2025soft} proposed the Soft Diffusion Actor-Critic (SDAC) algorithm to train diffusion policies in online RL without sampling from optimal policies. 
+
+Key points of SDAC:
+    \begin{itemize}
+        \item   Reverse sampling score matching (RSSM), an algorithm to train diffusion models with only access to the energy function (i.e., unnormalized density) while \textit{bypassing sampling from the data distribution}.
+        \item  The RSSM enables efficient diffusion policy training when fit into online RL, which
+        leads to a practical implementation named Soft Diffusion Actor-Critic (SDAC). 
+    \end{itemize}
+\end{frame}
+
+%------------------------------------------------
+\section{Preliminaries}
+\subsection{Markov Decision Process (MDP)}
+%------------------------------------------------
+\begin{frame}{Preliminaries: Markov Decision Process (MDP)}
+    \begin{itemize}
+        \item   MDP specified by a tuple $\cM=(\cS,\cA,r,P,\mu_0,\gamma)$.
+        \item  $\cS$ is the state space, $\cA$ is the action space.
+        \item $r:\cS\times \cA\rightarrow \bR$ is a reward function.
+        \item $P(\cdot|s,a): \cS\times\cA\rightarrow \Delta(\cS)$ is the transition probability.
+        \item $\mu_0\in \Delta(\cS)$ is the initial distribution.
+        \item $\gamma \in (0,1)$ is the discount factor.
+    \end{itemize}
+\end{frame}
+
+%------------------------------------------------
+\subsection{Maximum Entropy RL}
+\begin{frame}{Preliminaries: Maximum Entropy RL}
+\textbf{Policy learning objective:} 
+\nal{
+    \arg\max\limits_{\pi} J(\pi) := \bE_{\pi}\left[\sum\limits_{t=0}^{\infty}\gamma^t[r(s_t,a_t)+\lm \cH(\pi(\cdot|s_t))]\right],
+}
+where,
+\begin{itemize}
+\item $J(\pi)$ is known as the entropy regularized expected return for policy $\pi$, 
+\item $\cH(\pi(\cdot|s))=\bE_{a\sim \pi(\cdot|s)}[-\log \pi(a|s)]$ is the entropy,
+\item $\lm$ is a regularization coefficient for the entropy.
+\end{itemize}
+\end{frame}
+
+%------------------------------------------------
+\subsection{Soft Policy iteration algorithm}
+\begin{frame}{Preliminaries: Soft Policy iteration algorithm \cite{haarnoja2018soft}}
+\textbf{Soft Policy Evaluation:} 
+It updates the soft $Q$-function by repeatedly applying soft Bellman
+ update operator $\cT^{\pi}$ to current value function $Q: \cS\times\cA\rightarrow \bR$, i.e.,
+\begin{itemize}
+\item \al{
+          \cT^{\pi}Q(s_t,a_t) = r(s_t,a_t) + \gamma \bE_{s_{t+1}\sim P}[V(s_{t+1})], \label{eq:1}
+    }
+    where $V(s_t)=\bE_{a_t\sim \pi}[Q(s_t,a_t)-\lm \log \pi(a_t|s_t)]$.
+\end{itemize}
+\textbf{Soft Policy Improvement:} 
+\begin{itemize}
+    \item 
+    \al{
+        \pi_{target}(a|s)\propto \exp\left(\frac{1}{\lm}Q^{\pi_{old}}(s,a)\right), \label{eq:2}
+        }
+    \item $\pi_{old}$ is the current policy, $Q^{\pi_{old}}$ is the converged result of \eqref{eq:1} with $\cT^{\pi_{old}}$.
+\end{itemize}
+\end{frame}
+
+%------------------------------------------------
+\subsection{Soft Actor-Critic}
+\begin{frame}{Preliminaries: Soft Actor-Critic \cite{haarnoja2018soft}}
+\begin{itemize}
+ \item Although we have closed-form policy \eqref{eq:2}, it is an unnormalized distribution (energy-based policy) which is notoriously difficult to sample from and learn. 
+ \item To enable efficient computation, a natural idea is
+ to approximate the energy-based policies \eqref{eq:2} with a parametrized distribution.
+ \item Example: SAC
+    \nal{
+        \pi_{\te}(a|s)=\cN(\mu_{\te_1}(s),\sigma_{\te_2}^2(s)),
+    }
+ and updates $\te$ according to policy gradient approach, i.e.,
+ \nal{
+    J^{\pi}_{SAC}(\te) = \bE_{s\sim \cD, a\sim\pi_{\te}}[\lm\log\pi_{\te}(a|s)-Q^{\pi_{old}}(s,a)].
+ }
+ \item \alert{The Gaussian approximation loses the inherent expressiveness and multi-modality of energy-based policies.}
+ \end{itemize}
+\end{frame}
+
+%------------------------------------------------
+\subsection{Denoising Diffusion Probabilistic Models (DDPMs)}
+\begin{frame}{Preliminaries: Denoising Diffusion Probabilistic Models (DDPMs)}
+\begin{itemize}
+ \item DDPMs are powerful tools to represent and generate complex probability distributions. 
+ \item Given data samples from the data distribution $p_0$, DDPMs are composed of a forward diffusion process that gradually perturbs the data distribution $x_0\sim p_0$ to a noise distribution $x_T\sim p_T$, and a reverse diffusion process that reconstructs data distribution $p_0$ from noise distribution $p_T$.
+ \end{itemize}
+\end{frame}
+
+%------------------------------------------------ 
+%------------------------------------------------
+\begin{frame}{Preliminaries: DDPMs Contd...}
+\begin{itemize}
+ \item The forward corruption kernel is usually Gaussian with a variance $\beta_1,\ldots,\beta_T$, resulting in the forward trajectories with joint distribution,
+ \al{
+    q_{0:T}(x_{0:T})&=p_0(x_0)\prod\limits_{t=1}^{T}q_{t|t-1}(x_t|x_{t-1}), \text{ where }\notag\\
+    q_{t|t-1}(x_t|x_{t-1}):&= \cN(x_t;\sqrt{1-\beta_t}x_{t-1},\beta_t I). \label{eq:3}
+ }
+ \item  The backward process recovers the data distribution from a noise distribution $p_T$ with a series of reverse kernels $p_{t-1|t}(x_{t-1}|x_t)$.
+ \item  The reverse kernels are usually intractable, so we parameterize it with neural networks denoted as $p_{\te;t-1|t}(x_{t-1}|x_t)$,
+ resulting in a joint distribution of the reverse process,
+ \al{
+    p_{0:T}(x_{0:T})=p_T(x_T)\prod\limits_{t=1}^{T}  p_{\te;t-1|t}(x_{t-1}|x_t). \label{eq:4}
+ }
+ \end{itemize}
+\end{frame}
+
+%------------------------------------------------ 
+\begin{frame}{Preliminaries: DDPMs Contd...}
+\begin{itemize}
+ \item Considering all $(x_1,\ldots,x_T)$ as the latent variables, we can solve the parameters $\te$ via optimizing the evidence lower bound (ELBO) over $x_0$,
+ \nal{
+    \text{ELBO}(\te)=\bE_{x_0\sim P_0}\bE_{x_{1:T}\sim q}\left[\log\frac{p_{\te}(x_{0:T})}{q(x_{1:T}|x_0)}\right].
+ }
+ \item  After fixing $p_{\te;t-1|t}$ to be Gaussian and reparametrizing $p_{\te;t-1|t}$ with a score network $s_{\te}(x_t;t)$, maximizing the ELBO is equivalent to minimizing a collection of denoising score matching loss, 
+ \al{
+    \cL_{DSM}(\te):=\frac{1}{T}\sum\limits_{t=0}^{T}(1-\bar{\alpha}_t)\bE_{x_0\sim p_0, x_t\sim q_{t|0}}\left[\|s_{\te}(x_t;t)-\nabla\log q_{t|0}(x_t|x_0)\|^2\right], \label{eq:5}
+ }
+ where $q_{t|0}(x_t|x_0):=\cN(a_t;\sqrt{\bar{\alpha}_t}a_0,(1-\bar{\alpha}_t)I)$ and $\bar{\alpha}_t=\prod\limits_{\ell=1}^t (1-\beta_{\ell})$.
+ \end{itemize}
+\end{frame}
+
+%------------------------------------------------ 
+\begin{frame}{Preliminaries: DDPMs Contd...}
+After learning the $s_{\te}$ by minimizing $\cL_{DSM}(\te)$, we can draw sample via the reverse diffusion process by iteratively as follows
+\al{
+    x_{t-1} = \frac{1}{\sqrt{\bar{\alpha}_t}}(x_t+\beta_t s_{\te}(x_t,t)) + \left(\frac{1-\bar{\alpha}_{t-1}}{1-\bar{\alpha}_{t}}\right) \beta_t z_t, \label{eq:6}
+}
+for $t=T,T-1,\ldots,1$ and $z_t\sim \cN(0,I)$.
+\end{frame}
+
+%------------------------------------------------
+\section{Diffusion Policy Learning in Online RL}
+\begin{frame}{Diffusion Policy Learning in Online RL \cite{ma2025soft}}
+\begin{itemize}
+    \item  In this section, we first see the connection of energy-based models and diffusion models, and see the difficulties in online training of diffusion policy. 
+ \item We then see the reverse sampling score matching (RSSM) to train the diffusion policy with only access to the energy function in online RL.
+\end{itemize}
+\end{frame}
+%------------------------------------------------ 
+\subsection{Diffusion Models as Noise-Perturbed EBMs}
+\begin{frame}{Diffusion Models as Noise-Perturbed Energy-Based Models}
+\begin{itemize}
+    \item  Here we justify the above title that the diffusion policy can efficiently represent the energy
+based $\pi_{target}$. 
+ \item Given $s$, consider perturbing action samples $a_0\sim \pi_{target}(\cdot|s)$ with corruption kernel
+ $q_{t|0}(a_t|a_0) = \cN(a_t;\sqrt{\bar{\alpha}_t}a_0,(1-\bar{\alpha}_t)I)$, which results in the noisy-perturbed policy $\tilde{\pi}_t(\cdot|s)$ with
+ \al{
+    \tilde{\pi}_t(a_t|s) = \int q_{t|0}(a_t|a_0)\pi_{target}(a_0|s)da_0, ~~t=1,2,\ldots,T. \label{eq:7}
+ }
+\end{itemize}
+\end{frame}
+%------------------------------------------------ 
+\begin{frame}{Diffusion Models as Noise-Perturbed EBMs (Contd...)}
+Recall the denoising score matching loss from DDPM section,
+\al{
+    \cL_{DSM}(\te):=\frac{1}{T}\sum\limits_{t=0}^{T}(1-\bar{\alpha}_t)\bE_{x_0\sim p_0, x_t\sim q_{t|0}}\left[\|s_{\te}(x_t;t)-\nabla\log q_{t|0}(x_t|x_0)\|^2\right]. \label{eq:5a}
+ }
+\begin{theorem}[Diffusion Models as Noise-Perturbed EBMs]
+        The score network $s_{\te}(a_t;s,t)$ in $\cL_{DSM}(\te)$\eqref{eq:5a} matches noise-perturbed score functions, $\nabla_{a_t}\log\tilde{\pi}_t(a_t|s)$, where state $s$ is added to inputs of score network $s_{\te}(a_t;s,t)$ to handle conditional distributions, $p_0(\cdot)$ in \eqref{eq:5a} refers to $\pi_{target}(\cdot|s)$ in the policy learning setting.
+    \end{theorem}
+    \textbf{Proof sketch:}
+It is shown in \cite{ma2025soft} that 
+\nal{
+    & \bE_{a_t\sim \tilde{\pi}_t}\left[\|s_{\te}(a_t;s,t)-\nabla_{a_t}\log\tilde{\pi}_t(a_t|s_t)\|^2\right] \\
+    & = \bE_{a_0\sim \pi_{target}, a_t\sim q_{t|0}}\left[\|s_{\te}(a_t;s,t)-\nabla_{a_t}\log q_{t|0}(a_t|a_0)\|^2\right] + \text{constant}.
+}
+\end{frame}
+%------------------------------------------------ 
+\begin{frame}{Difficulties to train diffusion model in online RL setup}
+Recall, we need to minimize the loss
+\nal{
+    \frac{1}{T}\sum\limits_{t=0}^{T}(1-\bar{\alpha}_t)\bE_{a_0\sim \pi_{target}, a_t\sim q_{t|0}}\left[\|s_{\te}(a_t;s,t)-\nabla_{a_t}\log q_{t|0}(a_t|a_0)\|^2\right]. 
+ }
+\textbf{1.Sampling Challenge:}  The vanilla diffusion training with denoising score matching requires samples from the target policy $\pi_{target}$, but we cannot access $\pi_{target}$ directly in online RL since we only know the energy function, i.e., the Q-functions.
+
+ \textbf{2.Computational challenge:} Another possible solution is to backpropagate policy gradient thorough the whole reverse diffusion process \eqref{eq:6a}. However, this recursive gradient propagation not only incurs huge computational and memory cost, but also suffers from gradient vanishing or exploding, making diffusion policy learning expensive and unstable.
+ \al{
+    a_{t-1} = \frac{1}{\sqrt{\bar{\alpha}_t}}(a_t+\beta_t s_{\te}(a_t;s,t)) + \left(\frac{1-\bar{\alpha}_{t-1}}{1-\bar{\alpha}_{t}}\right) \beta_t z_t. \label{eq:6a}
+}    
+\end{frame}
+
+%------------------------------------------------
+\subsection{Learning Noise-perturbed Score Functions via RSSM}
+%------------------------------------------------ 
+\begin{frame}{Learning Noise-perturbed Score Functions via RSSM}
+ \cite{ma2025soft} proposed reverse sampling score matching (RSSM), an efficient
+ diffusion policy learning algorithm that eliminates the aforementioned difficulties. 
+    \begin{theorem}[Reverse sampling score matching]
+        Define $\tilde{p}_t(\cdot|s)$ as a sampling distribution whose support contains the support of $\tilde{\pi}_t(\cdot|s)$ given $s$. Then we can learn the score network $s_{\te}(a_t;s,t)$ to match with the score function of noise-perturbed policy $\nabla_{a_t}\log \tilde{\pi}_t(a_t|s)$ via minimizing the RSSM loss
+        \al{
+            \bE_{a_t\sim \tilde{p}_t, \tilde{a}_0\sim \tilde{q}_{0|t}}\left[\exp(Q(s,\tilde{a}_0)/\lm)\cdot\|s_{\te}(a_t;s,t)-\nabla_{a_t}\log \tilde{q}_{0|t}(\tilde{a}_0|a_t)\|^2\right], \label{eq:10}
+        }
+        where we abbreviate $Q^{\pi_{old}}$ with $Q$ for simplicity and $\tilde{q}_{0|t}$ is the reverse sampling distribution defined as
+        \al{
+            \tilde{q}_{0|t}(\tilde{a}_0|a_t):=\cN\left(a_0;\frac{1}{\sqrt{\bar{\alpha}_t}}a_t,\frac{1-\bar{\alpha}_t}{\bar{\alpha}_t}I\right), \label{eq:11}
+        }
+        which means $\tilde{a}_0 = \frac{1}{\sqrt{\bar{\alpha}_t}}a_t - \sqrt{\frac{1-\bar{\alpha}_t}{\bar{\alpha}_t}} \eps$ for $\eps \sim \cN(0,I)$.
+    \end{theorem}
+\end{frame}
+%------------------------------------------------
+\begin{frame}{Proof Sketch}
+    Recall,
+    \nal{
+        \tilde{\pi}_t(a_t|s) = \int q_{t|0}(a_t|a_0)\pi_{target}(a_0|s)da_0, ~~t=1,2,\ldots,T,
+    }
+    and
+    \nal{
+        \pi_{target}(a_0|s)=\frac{\exp(Q(s,a_0)/\lm)}{\int \exp(Q(s,a_0)/\lm) da_0}.
+    }
+    It is shown in \cite{ma2025soft} that
+    \al{
+        & \|s_{\te}(a_t;s,t)-\nabla_{a_t}\log\tilde{\pi}_t(a_t|s)\|^2 \notag\\
+        & = \int \frac{1}{\alert{Z(a_t;s)}}q_{t|0}(a_t|a_0)\cdot\exp(Q(s,a_0)/\lm)\cdot\ell_{\te}(a_0,a_t;s)da_0 da_t + \text{constant}. \label{eq:12}
+    }
+    where, $\ell_{\te}(a_0,a_t;s):=\|s_{\te}(a_t;s,t)-\nabla_{a_t}\log q_{t|0}(a_t|a_0)\|^2$, $Z(a_t;s):=\tilde{\pi}_t(a_t|s)\alert{\int \exp(Q(s,a_0)/\lm)da_0}$.
+\end{frame}
+%------------------------------------------------
+\begin{frame}{Proof Sketch (Contd...)}
+    Recall that we use score network $s_{\te}(a_t;s,t)$ to learn $\nabla_{a_t}\log\tilde{\pi}_t(a_t|s)$. For this we need to minimize the squared error $\|s_{\te}(a_t;s,t)-\nabla_{a_t}\log\tilde{\pi}_t(a_t|s)\|^2$.
+    
+    \textbf{Weight function $g$:} 
+    \nal{
+    g(a_t;s):= Z(a_t;s)\tilde{p}_t(a_t|s).
+    }
+   As $Z(a_t;s)$ is $\tilde{\pi}_t(a_t|s)$ scaled by normalization constant $\int \exp(Q(s,a_0)/\lm)da_0$ and the support of $\tilde{p}_t(\cdot|s)$ contains the support of 
+ $\tilde{\pi}_t(\cdot|s)$, we know that $g(a_t;s)$ is strictly positive on the support of $\tilde{\pi}_t(\cdot|s)$.
+
+ Hence we can optimize squared error over $a_t$ by the following loss function
+ \al{
+    \cL^{g}(\te;s,t) := \int g(a_t;s)\cdot\|s_{\te}(a_t;s,t)-\nabla_{a_t}\log\tilde{\pi}_t(a_t|s)\|^2 da_t. \label{eq:13}
+ }
+\end{frame}
+
+%------------------------------------------------
+\begin{frame}{Proof Sketch (Contd...)}
+    Upon substituting \eqref{eq:12} in \eqref{eq:13}, we obtain
+    \al{
+        &\cL^{g}(\te;s,t) \label{eq:14}\\
+        & = \int\int \tilde{p}_t(a_t|s) q_{t|0}(a_t|a_0)\cdot \exp(Q(s,a_0)/\lm)\cdot \|s_{\te}(a_t;s,t)-\nabla_{a_t}\log q_{t|0}(a_t|a_0)\|^2 \alert{da_0} da_t \notag\\
+        & \quad + \text{ constant}. \notag
+    }
+    \textbf{Reverse Sampling trick:}
+
+    The loss function in \eqref{eq:14} is still not tractable. To handle this, we introduce
+ the reverse sampling trick, i.e., replacing $q_{t|0}$ with a reverse sampling distribution $\tilde{q}_{0|t}$ that satisfies
+ \nal{
+    & \tilde{q}_{0|t}(a_0|a_t) = \cN\left(a_0;\frac{1}{\sqrt{\bar{\alpha}_t}}a_t,\frac{1-\bar{\alpha}_t}{\bar{\alpha}_t}I\right)\\
+    & \propto  q_{t|0}(a_t|a_0) = \cN(a_t;\sqrt{\bar{\alpha}_t}a_0,(1-\bar{\alpha}_t)I).
+ }
+\end{frame}
+%------------------------------------------------
+%------------------------------------------------
+\begin{frame}{Proof Sketch (Contd...)}
+    Their score functions match: $\nabla_{a_t}\log q_{t|0}(a_t|a_0) = \nabla_{a_t}\log \tilde{q}_{0|t}(a_0|a_t) = -\frac{a_t-\sqrt{\bar{\alpha}_t}a_0}{1-\bar{\alpha}_t}$.
+
+    Hence, we can replace $q_{t|0}$ with $\tilde{q}_{0|t}$ in $\cL^{g}(\te;s,t)$ \eqref{eq:14} to get a tractable loss function,
+    \al{
+        &\cL^{g}(\te;s,t) \label{eq:15}\\
+        & = \int\int \tilde{p}_t(a_t|s) \tilde{q}_{0|t}(\tilde{a}_0|a_t)\cdot \exp(Q(s,a_0)/\lm)\cdot \|s_{\te}(a_t;s,t)-\nabla_{a_t}\log \tilde{q}_{0|t}(\tilde{a}_0|a_t)\|^2 d\tilde{a}_0 da_t \notag\\
+        & \quad + \text{ constant} \notag\\
+        & = \bE_{a_t\sim \tilde{p}_t, \tilde{a}_0\sim \tilde{q}_{0|t}}\left[\exp(Q(s,\tilde{a}_0)/\lm)\cdot\|s_{\te}(a_t;s,t)-\nabla_{a_t}\log \tilde{q}_{0|t}(\tilde{a}_0|a_t)\|^2\right]+\text{ constant}.\notag
+    }
+    This completes the proof. 
+\end{frame}
+%------------------------------------------------
+
+%------------------------------------------------
+
+
+\begin{frame}{References}
+    \footnotesize
+    \bibliography{reference.bib}
+    \bibliographystyle{apalike}
+\end{frame}
+
+%------------------------------------------------
+
+\begin{frame}
+    \Huge{\centerline{\textbf{The End}}}
+\end{frame}
+
+%----------------------------------------------------------------------------------------
+
+\end{document}
